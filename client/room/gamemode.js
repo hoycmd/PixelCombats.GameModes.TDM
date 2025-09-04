@@ -4,14 +4,13 @@ import * as teams from './default_teams.js';
 import * as default_timer from './default_timer.js';
 
 // настройки
-const WaitingPlayersTime = 10;
-const BuildBaseTime = 30;
-const KnivesModeTime = 40;
+const WaitingPlayersTime = 11;
+const BuildBaseTime = 31;
+const KnivesModeTime = 41;
 const GameModeTime = default_timer.game_mode_length_seconds();
-const MockModeTime = 10;
-const EndOfMatchTime = 8;
+const MockModeTime = 11;
+const EndOfMatchTime = 9;
 const VoteTime = 10;
-
 const KILL_SCORES = 5;
 const WINNER_SCORES = 10;
 const TIMER_SCORES = 5;
@@ -24,34 +23,38 @@ const KnivesModeStateValue = "KnivesMode";
 const GameStateValue = "Game";
 const MockModeStateValue = "MockMode";
 const EndOfMatchStateValue = "EndOfMatch";
-
 const immortalityTimerName = "immortality"; // имя таймера, используемого в контексте игрока, для его бессмертия
 const KILLS_PROP_NAME = "Kills";
 const SCORES_PROP_NAME = "Scores";
 
 // получаем объекты, с которыми работает режим
 const mainTimer = Timers.GetContext().Get("Main");
-const scores_timer = Timers.GetContext().Get("Scores");
+const scoresTimer = Timers.GetContext().Get(SCORES_PROP_NAME);
 const stateProp = Properties.GetContext().Get("State");
 
+// инициализация команд
+function CreateNewTeam(TeamName, TeamDisplayName, TeamColor, TeamSpawnPointGroup, TeamBuildBlocksSet) {
+ Teams.Add(TeamName, TeamDisplayName, TeamColor);
+const NewTeam = Teams.Get(TeamName);
+ NewTeam.Spawns.SpawnPointsGroups.Add(TeamSpawnPointGroup);
+ NewTeam.Build.BlocksSet.Value = TeamBuildBlocksSet;
+  return NewTeam;
+}
+
 // применяем параметры конструктора режима
-Damage.GetContext().FriendlyFire.Value = GameMode.Parameters.GetBool("FriendlyFire");
 const MapRotation = GameMode.Parameters.GetBool("MapRotation");
+Damage.GetContext().FriendlyFire.Value = GameMode.Parameters.GetBool("FriendlyFire");
 BreackGraph.WeakBlocks = GameMode.Parameters.GetBool("LoosenBlocks");
 BreackGraph.OnlyPlayerBlocksDmg = GameMode.Parameters.GetBool("OnlyPlayerBlocksDmg");
 
-// бустим блоки игрока
-BreackGraph.PlayerBlockBoost = true;
-
-// имя игрового режима (устарело)
-Properties.GetContext().GameModeName.Value = "GameModes/Team Dead Match";
-TeamsBalancer.IsAutoBalance = true;
-Ui.GetContext().MainTimerId.Value = mainTimer.Id;
-// создаем стандартные команды
-const blueTeam = teams.create_team_blue();
-const redTeam = teams.create_team_red();
-blueTeam.Build.BlocksSet.Value = BuildBlocksSet.Blue;
-redTeam.Build.BlocksSet.Value = BuildBlocksSet.Red;
+// опции
+Properties.GetContext().GameModeName.Value = "GameModes/Team Dead Match"; // имя игрового режима (устарело)
+TeamsBalancer.IsAutoBalance = true; // балансер команд
+BreackGraph.PlayerBlocksBoost = true; // буст блока игрока
+Ui.GetContext().MainTimerId.Value = mainTimer.Id // айди (индификатор) таймера
+// создаем стандартные команды (Новый прототип команд, который не использует файл, или строки 
+const blueTeam = CreateNewTeam("Blue", "Red\nСиние", new Color(0, 0, 125/255, 0), 1, BuildBlocksSet.Blue);
+const redTeam = CreateNewTeam("Red", "Blue\nКрасные", new Color(125/255, 0, 0, 0), 2, BuildBlocksSet.Red);
 
 // настраиваем параметры, которые нужно выводить в лидерборде
 LeaderBoard.PlayerLeaderBoardValues = [
@@ -70,31 +73,24 @@ LeaderBoard.PlayersWeightGetter.Set(function (player) {
 	return player.Properties.Get(SCORES_PROP_NAME).Value;
 });
 
-// отображаем изначально нули в очках команд
-redTeam.Properties.Get(SCORES_PROP_NAME).Value = 0;
-blueTeam.Properties.Get(SCORES_PROP_NAME).Value = 0;
-
 // отображаем значения вверху экрана
 Ui.GetContext().TeamProp1.Value = { Team: "Blue", Prop: SCORES_PROP_NAME };
 Ui.GetContext().TeamProp2.Value = { Team: "Red", Prop: SCORES_PROP_NAME };
 
 // при запросе смены команды игрока - добавляем его в запрашиваемую команду
-Teams.OnRequestJoinTeam.Add(function (player, team) { team.Add(player); });
+Teams.OnRequestJoinTeam.Add(function (p, t) { t.Add(p); });
 // при запросе спавна игрока - спавним его
-Teams.OnPlayerChangeTeam.Add(function (player) { player.Spawns.Spawn() });
+Teams.OnPlayerChangeTeam.Add(function (p) { p.Spawns.Spawn() });
 
 // бессмертие после респавна
-Spawns.GetContext().OnSpawn.Add(function (player) {
-	if (stateProp.Value == MockModeStateValue) {
-		player.Properties.Immortality.Value = false;
-		return;
-	}
-	player.Properties.Immortality.Value = true;
-	player.Timers.Get(immortalityTimerName).Restart(3);
+Spawns.GetContext().OnSpawn.Add(function (p) {
+if (stateProp.Value == MockModeStateValue) p.Properties.Immortality.Value = false; 
+ return;
+	p.Properties.Immortality.Value = true;
+	p.Timers.Get(immortalityTimerName).Restart(3);
 });
-Timers.OnPlayerTimer.Add(function (timer) {
-	if (timer.Id != immortalityTimerName) return;
-	timer.Player.Properties.Immortality.Value = false;
+Timers.OnPlayerTimer.Add(function (t) {
+	if (t.Id != immortalityTimerName) t.Player.Properties.Immortality.Value = false;
 });
 
 // обработчик спавнов
@@ -103,30 +99,25 @@ Spawns.OnSpawn.Add(function (player) {
 	++player.Properties.Spawns.Value;
 });
 // обработчик смертей
-Damage.OnDeath.Add(function (player) {
-	if (stateProp.Value == MockModeStateValue) {
-		Spawns.GetContext(player).Spawn();
-		return;
-	}
+Damage.OnDeath.Add(function (p) {
+if (stateProp.Value == MockModeStateValue) Spawns.GetContext(p).Spawn();
+ return;
 	++player.Properties.Deaths.Value;
 });
 // обработчик убийств
-Damage.OnKill.Add(function (player, killed) {
+Damage.OnKill.Add(function (p, k) {
 	if (stateProp.Value == MockModeStateValue) return;
-	if (killed.Team != null && killed.Team != player.Team) {
-		++player.Properties.Kills.Value;
+	if (p.id !== k.id) ++p.Properties.Kills.Value;
 		// добавляем очки кила игроку и команде
-		player.Properties.Scores.Value += KILL_SCORES;
-		if (stateProp.Value !== MockModeStateValue && player.Team != null)
-			player.Team.Properties.Get(SCORES_PROP_NAME).Value += KILL_SCORES;
-	}
+		p.Properties.Scores.Value += KILL_SCORES;
+		if (stateProp.Value !== MockModeStateValue && p.Team != null) p.Team.Properties.Get(SCORES_PROP_NAME).Value += KILL_SCORES;
 });
 
 // таймер очков за проведенное время
-scores_timer.OnTimer.Add(function () {
-	for (const player of Players.All) {
-		if (player.Team == null) continue; // если вне команд то не начисляем ничего по таймеру
-		player.Properties.Scores.Value += TIMER_SCORES;
+scoresTimer.OnTimer.Add(function () {
+ for (const p of Players.All) {
+		if (p.Team === null) continue; // если вне команд то не начисляем ничего по таймеру
+		p.Properties.Scores.Value += TIMER_SCORES;
 	}
 });
 
@@ -160,14 +151,14 @@ SetWaitingMode();
 // состояния игры
 function SetWaitingMode() {
 	stateProp.Value = WaitingStateValue;
-	Ui.GetContext().Hint.Value = "Hint/WaitingPlayers";
+	Ui.GetContext().Hint.Value = "Ожидание, всех - игроков...";
 	Spawns.GetContext().enable = false;
 	mainTimer.Restart(WaitingPlayersTime);
 }
 function SetBuildMode() {
 	stateProp.Value = BuildModeStateValue;
-	Ui.GetContext().Hint.Value = "Hint/BuildBase";
-	var inventory = Inventory.GetContext();
+	Ui.GetContext().Hint.Value = "Застраивайте базу, и разрушайте базу - врагов!";
+	const inventory = Inventory.GetContext();
 	inventory.Main.Value = false;
 	inventory.Secondary.Value = false;
 	inventory.Melee.Value = true;
@@ -180,9 +171,10 @@ function SetBuildMode() {
 	Spawns.GetContext().enable = true;
 	SpawnTeams();
 }
+if (!GameMode.Paramters.GetBool("OnlyKnives")) {
 function SetKnivesMode() {
 	stateProp.Value = KnivesModeStateValue;
-	Ui.GetContext().Hint.Value = "Hint/KnivesMode";
+	Ui.GetContext().Hint.Value = "Поножовщина!";
 	var inventory = Inventory.GetContext();
 	inventory.Main.Value = false;
 	inventory.Secondary.Value = false;
@@ -195,12 +187,13 @@ function SetKnivesMode() {
 	mainTimer.Restart(KnivesModeTime);
 	Spawns.GetContext().enable = true;
 	SpawnTeams();
+ }
 }
 function SetGameMode() {
 	// разрешаем нанесение урона
 	Damage.GetContext().DamageOut.Value = true;
 	stateProp.Value = GameStateValue;
-	Ui.GetContext().Hint.Value = "Hint/AttackEnemies";
+	Ui.GetContext().Hint.Value = "Нападайте, на всех - врагов!";
 
 	var inventory = Inventory.GetContext();
 	if (GameMode.Parameters.GetBool("OnlyKnives")) {
@@ -222,7 +215,7 @@ function SetGameMode() {
 	SpawnTeams();
 }
 function SetEndOfMatch() {
-	scores_timer.Stop(); // выключаем таймер очков
+	scoresTimer.Stop(); // выключаем таймер очков
 	const leaderboard = LeaderBoard.GetTeams();
 	if (leaderboard[0].Weight !== leaderboard[1].Weight) {
 		// режим прикола вконце катки
@@ -239,7 +232,7 @@ function SetEndOfMatch() {
 function SetMockMode(winners, loosers) {
 	// задаем состояние игры
 	stateProp.Value = MockModeStateValue;
-	scores_timer.Stop(); // выключаем таймер очков
+	scoresTimer.Stop(); // выключаем таймер очков
 
 	// подсказка
 	Ui.GetContext(winners).Hint.Value = "Hint/MockHintForWinners";
@@ -273,8 +266,8 @@ function SetMockMode(winners, loosers) {
 }
 function SetEndOfMatch_EndMode() {
 	stateProp.Value = EndOfMatchStateValue;
-	scores_timer.Stop(); // выключаем таймер очков
-	Ui.GetContext().Hint.Value = "Hint/EndOfMatch";
+	scoresTimer.Stop(); // выключаем таймер очков
+	Ui.GetContext().Hint.Value = "Конец, матча!";
 
 	var spawns = Spawns.GetContext();
 	spawns.enable = false;
@@ -298,8 +291,8 @@ function start_vote() {
 }
 
 function SpawnTeams() {
-	for (const team of Teams)
-		Spawns.GetContext(team).Spawn();
+	for (const t of Teams)
+		Spawns.GetContext(t).Spawn();
 }
 
 scores_timer.RestartLoop(SCORES_TIMER_INTERVAL);
